@@ -27,12 +27,12 @@ def convert_pdf_with_vision(file_name, file_path):
         api_key=os.getenv("ANTHROPIC_AUTH_TOKEN"),
         base_url=os.getenv("ANTHROPIC_BASE_URL")
     )
-    
+
     # 读取PDF文件
     pdf_base64 = pdf_to_base64(file_path)
-    
+
     print(f"正在用Vision API转换 {file_name}（PDF大小: {len(pdf_base64)/1024:.1f}KB）...")
-    
+
     # 构建消息
     content = [
         {
@@ -41,7 +41,7 @@ def convert_pdf_with_vision(file_name, file_path):
 
 文件名：{file_name}
 
-这是一份丰图科技的财务管理文档。请：
+请：
 1. 保留完整的文档结构（所有标题、小节、章节等）
 2. 转换所有文本内容，确保准确
 3. 对流程图、表格、图表等可视化内容进行清晰的描述和转换
@@ -62,7 +62,7 @@ def convert_pdf_with_vision(file_name, file_path):
             }
         }
     ]
-    
+
     # 调用Claude Vision API（支持PDF文档类型）
     message = client.messages.create(
         model="claude-opus-4-6",
@@ -71,28 +71,43 @@ def convert_pdf_with_vision(file_name, file_path):
             {"role": "user", "content": content}
         ]
     )
-    
+
     return message.content[0].text
 
 
-def process_pdfs():
-    """处理所有PDF文件"""
-    base_dir = Path("知识库base")
-    output_dir = Path("知识库md")
+def process_pdfs(input_dir=None, output_dir=None, file_list=None):
+    """处理PDF文件
 
-    output_dir.mkdir(exist_ok=True)
+    Args:
+        input_dir: 输入目录路径（默认为当前目录）
+        output_dir: 输出目录路径（默认为当前目录）
+        file_list: 要处理的文件名列表（如果为None，处理目录中的所有.pdf文件）
+    """
+    if input_dir is None:
+        input_dir = Path.cwd()
+    else:
+        input_dir = Path(input_dir)
 
-    pdf_files = [
-        "丰图科技员工费用报销操作指引V3.0 (1).pdf",
-        "丰图科技客户评级管理规则【1.0】.pdf",
-        "关于项目投入及费用结算的管理要求及标准.pdf",
-        "员工报销管理规定.pdf",
-    ]
+    if output_dir is None:
+        output_dir = Path.cwd()
+    else:
+        output_dir = Path(output_dir)
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # 如果未指定文件列表，扫描输入目录的PDF文件
+    if file_list is None:
+        pdf_files = list(input_dir.glob('*.pdf'))
+        file_list = [f.name for f in pdf_files]
+
+    if not file_list:
+        print("未找到需要处理的PDF文件")
+        return
 
     results = []
 
-    for file_name in pdf_files:
-        file_path = base_dir / file_name
+    for file_name in file_list:
+        file_path = input_dir / file_name
 
         if not file_path.exists():
             print(f"[失败] 文件不存在: {file_path}")
@@ -133,5 +148,17 @@ if __name__ == "__main__":
     if not os.getenv("ANTHROPIC_BASE_URL") or not os.getenv("ANTHROPIC_AUTH_TOKEN"):
         print("错误: 未设置环境变量")
         sys.exit(1)
-    
-    process_pdfs()
+
+    import argparse
+    parser = argparse.ArgumentParser(description='使用Claude Vision API将PDF文件转换为Markdown格式')
+    parser.add_argument('--input', '-i', default=None, help='输入目录（默认为当前目录）')
+    parser.add_argument('--output', '-o', default=None, help='输出目录（默认为当前目录）')
+    parser.add_argument('files', nargs='*', help='要转换的PDF文件列表（如果未指定，处理输入目录中的所有.pdf文件）')
+
+    args = parser.parse_args()
+
+    process_pdfs(
+        input_dir=args.input,
+        output_dir=args.output,
+        file_list=args.files if args.files else None
+    )

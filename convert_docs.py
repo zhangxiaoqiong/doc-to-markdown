@@ -123,29 +123,44 @@ def convert_with_claude(file_name, file_content):
     return message.content[0].text
 
 
-def process_files():
-    """处理所有需要转换的文件"""
-    base_dir = Path("知识库base")
-    output_dir = Path("知识库md")
+def process_files(input_dir=None, output_dir=None, file_list=None):
+    """处理所有需要转换的文件
+
+    Args:
+        input_dir: 输入目录路径（默认为当前目录）
+        output_dir: 输出目录路径（默认为当前目录）
+        file_list: 要处理的文件名列表（如果为None，处理目录中的所有.docx和.pdf文件）
+    """
+    if input_dir is None:
+        input_dir = Path.cwd()
+    else:
+        input_dir = Path(input_dir)
+
+    if output_dir is None:
+        output_dir = Path.cwd()
+    else:
+        output_dir = Path(output_dir)
 
     # 确保输出目录存在
-    output_dir.mkdir(exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    # 定义需要处理的文件
-    files_to_process = [
-        "3-丰图科技：备用金及个人借款管理规范V4.0.docx",
-        "6-应付结算例外事项管理办法【3.0】.docx",
-        "7-丰图科技预付管理规定V3.0版20250307.docx",
-        "丰图科技员工费用报销操作指引V3.0 (1).pdf",
-        "丰图科技客户评级管理规则【1.0】.pdf",
-        "关于项目投入及费用结算的管理要求及标准.pdf",
-        "员工报销管理规定.pdf",
-    ]
+    # 如果未指定文件列表，扫描输入目录
+    if file_list is None:
+        supported_files = []
+        for ext in ['*.docx', '*.pdf']:
+            supported_files.extend(input_dir.glob(ext))
+        files_to_process = [f.name for f in supported_files]
+    else:
+        files_to_process = file_list
+
+    if not files_to_process:
+        print("未找到需要处理的文件")
+        return
 
     results = []
 
     for file_name in files_to_process:
-        file_path = base_dir / file_name
+        file_path = input_dir / file_name
 
         if not file_path.exists():
             print(f"[失败] 文件不存在: {file_path}")
@@ -196,4 +211,17 @@ if __name__ == "__main__":
         print("错误: 未设置ANTHROPIC_BASE_URL或ANTHROPIC_AUTH_TOKEN环境变量")
         sys.exit(1)
 
-    process_files()
+    # 解析命令行参数
+    import argparse
+    parser = argparse.ArgumentParser(description='将DOCX和PDF文件转换为Markdown格式')
+    parser.add_argument('--input', '-i', default=None, help='输入目录（默认为当前目录）')
+    parser.add_argument('--output', '-o', default=None, help='输出目录（默认为当前目录）')
+    parser.add_argument('files', nargs='*', help='要转换的文件列表（如果未指定，处理输入目录中的所有.docx和.pdf文件）')
+
+    args = parser.parse_args()
+
+    process_files(
+        input_dir=args.input,
+        output_dir=args.output,
+        file_list=args.files if args.files else None
+    )
