@@ -1,0 +1,64 @@
+# Environment variables
+.env
+.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+*.txt
+
+# Temporary files
+/tmp/
+*.tmp
+
+# API keys and sensitive data
+*.key
+*.pem
+credentials.json
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Project specific - Don't upload actual documents
+知识库base/              # Source financial documents
+知识库md/               # Generated Markdown output
+知识库md_v1.0/          # Generated Markdown v1.0
+*.bak
