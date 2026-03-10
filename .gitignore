@@ -58,7 +58,7 @@ Thumbs.db
 .DS_Store
 
 # Project specific - Don't upload actual documents
-知识库base/              # Source financial documents
-知识库md/               # Generated Markdown output
-知识库md_v1.0/          # Generated Markdown v1.0
+/知识库base/
+/知识库md/
+/知识库md_v1.0/
 *.bak
