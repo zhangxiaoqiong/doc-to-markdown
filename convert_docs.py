@@ -7,6 +7,7 @@
 
 import os
 import sys
+import time
 from pathlib import Path
 from anthropic import Anthropic
 
@@ -74,12 +75,12 @@ def extract_pdf_content(file_path):
     return "\n".join(content)
 
 
-def convert_with_claude(file_name, file_content):
-    """使用Claude API将文档内容转换为Markdown"""
+def convert_with_claude(file_name, file_content, max_retries=3):
+    """使用Claude API将文档内容转换为Markdown，支持重试"""
     # 使用环境变量初始化客户端
     base_url = os.getenv("ANTHROPIC_BASE_URL")
     auth_token = os.getenv("ANTHROPIC_AUTH_TOKEN")
-    
+
     client = Anthropic(
         api_key=auth_token,
         base_url=base_url
@@ -109,18 +110,32 @@ def convert_with_claude(file_name, file_content):
 
 请直接输出转换后的Markdown内容，不需要添加任何说明或标记。"""
 
-    print(f"正在转换 {file_name}...")
+    print(f"正在转换 {file_name}...", end=" ", flush=True)
 
-    message = client.messages.create(
-        model="claude-opus-4-6",
-        max_tokens=4096,
-        messages=[
-            {"role": "user", "content": user_message}
-        ],
-        system=system_prompt
-    )
-
-    return message.content[0].text
+    # 重试逻辑，指数退避
+    for attempt in range(max_retries):
+        try:
+            message = client.messages.create(
+                model="claude-opus-4-6",
+                max_tokens=4096,
+                messages=[
+                    {"role": "user", "content": user_message}
+                ],
+                system=system_prompt
+            )
+            print("✓")
+            return message.content[0].text
+        except Exception as e:
+            error_str = str(e)
+            # 判断是否是可重试的错误（429限流、500服务器错误）
+            if "429" in error_str or "500" in error_str or "503" in error_str:
+                if attempt < max_retries - 1:
+                    wait_time = 2 ** attempt  # 指数退避：1s, 2s, 4s
+                    print(f"\n  [重试 {attempt+1}/{max_retries-1}] 等待 {wait_time}s... ", end="", flush=True)
+                    time.sleep(wait_time)
+                    continue
+            # 其他错误或最后一次重试失败
+            raise
 
 
 def process_files(input_dir=None, output_dir=None, file_list=None):
@@ -144,6 +159,9 @@ def process_files(input_dir=None, output_dir=None, file_list=None):
     # 确保输出目录存在
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # 失败日志路径
+    failed_log = output_dir / "failed.log"
+
     # 如果未指定文件列表，扫描输入目录
     if file_list is None:
         supported_files = []
@@ -158,6 +176,7 @@ def process_files(input_dir=None, output_dir=None, file_list=None):
         return
 
     results = []
+    failed_files = []
 
     for file_name in files_to_process:
         file_path = input_dir / file_name
@@ -165,6 +184,7 @@ def process_files(input_dir=None, output_dir=None, file_list=None):
         if not file_path.exists():
             print(f"[失败] 文件不存在: {file_path}")
             results.append((file_name, "文件不存在"))
+            failed_files.append(f"{file_name}|文件不存在")
             continue
 
         try:
@@ -176,6 +196,7 @@ def process_files(input_dir=None, output_dir=None, file_list=None):
             else:
                 print(f"[失败] 不支持的文件格式: {file_name}")
                 results.append((file_name, "不支持的格式"))
+                failed_files.append(f"{file_name}|不支持的格式")
                 continue
 
             # 用Claude转换
@@ -192,8 +213,17 @@ def process_files(input_dir=None, output_dir=None, file_list=None):
             results.append((file_name, "成功"))
 
         except Exception as e:
-            print(f"[失败] {file_name}: {str(e)}")
-            results.append((file_name, f"错误: {str(e)}"))
+            error_msg = str(e)
+            print(f"[失败] {file_name}: {error_msg[:100]}")
+            results.append((file_name, f"错误: {error_msg[:100]}"))
+            failed_files.append(f"{file_name}|{error_msg}")
+
+    # 写入失败日志
+    if failed_files:
+        with open(failed_log, 'a', encoding='utf-8') as f:
+            f.write(f"\n=== {time.strftime('%Y-%m-%d %H:%M:%S')} ===\n")
+            for failed_entry in failed_files:
+                f.write(failed_entry + "\n")
 
     # 输出总结
     print("\n" + "="*60)
@@ -201,14 +231,28 @@ def process_files(input_dir=None, output_dir=None, file_list=None):
     print("="*60)
     success_count = sum(1 for _, status in results if status == "成功")
     print(f"成功: {success_count}/{len(results)}")
+    if failed_files:
+        print(f"失败: {len(failed_files)}/{ len(results)}")
+        print(f"详见: {failed_log}")
     for file_name, status in results:
-        print(f"  {file_name}: {status}")
+        if status != "成功":
+            print(f"  {file_name}: {status}")
 
 
 if __name__ == "__main__":
     # 检查环境变量
     if not os.getenv("ANTHROPIC_BASE_URL") or not os.getenv("ANTHROPIC_AUTH_TOKEN"):
-        print("错误: 未设置ANTHROPIC_BASE_URL或ANTHROPIC_AUTH_TOKEN环境变量")
+        print("错误: 缺少必要的环境变量")
+        print("\n请设置以下环境变量:")
+        print("  ANTHROPIC_BASE_URL     - API服务地址（如: https://api.anthropic.com）")
+        print("  ANTHROPIC_AUTH_TOKEN   - API认证密钥")
+        print("\n设置方法:")
+        if sys.platform == "win32":
+            print("  set ANTHROPIC_BASE_URL=<your-url>")
+            print("  set ANTHROPIC_AUTH_TOKEN=<your-token>")
+        else:
+            print("  export ANTHROPIC_BASE_URL=<your-url>")
+            print("  export ANTHROPIC_AUTH_TOKEN=<your-token>")
         sys.exit(1)
 
     # 解析命令行参数
