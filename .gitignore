@@ -59,6 +59,5 @@ Thumbs.db
 
 # Project specific - Don't upload actual documents
 /知识库base/
-/知识库md/
-/知识库md_v1.0/
+/知识库md*/
 *.bak

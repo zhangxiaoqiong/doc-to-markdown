@@ -86,11 +86,14 @@ def convert_pdf_chunk(file_name, chunk_path, chunk_info, chunk_num, total_chunks
 
 文件名：{file_name}
 
-这是文件的第 {chunk_info['pages']} 部分（共{total_chunks}部分）。请：
-1. 提取该部分所有文本内容
-2. 保留所有标题、表格、列表等结构
-3. 保留数据和关键信息
-4. 如有图表、流程图，用Markdown格式清晰描述
+这是文件的第 {chunk_info['pages']} 部分。请严格遵守以下要求：
+1. 【忽略水印】：忽略页面边缘的OA系统打印痕迹（如日期、网址链接、页码等）。
+2. 【提取结构】：保留所有标题、表格、列表等结构，图表用文字清晰描述。
+3. 【⚠️ 防范错别字】：本文档是企业管理/财务制度，请仔细辨认中文字体，严禁将形近字认错！
+   - 注意职务：如识别出类似“查事长”，须纠正为“董事长”或“副总裁”。
+   - 注意词汇：是“综合”不是“统合”，是“统一”不是“核一”，是“管理”不是“管外”。
+   - 注意业务词：是“单线/全线”而不是“眼线”。
+4. 【模糊处理】：遇到手写签名或极其模糊的字，请结合上下文推测；若无法辨别，请直接写 `[字迹不清]`，绝不生造生僻词。
 
 请直接输出Markdown，无需其他说明。"""
         },
@@ -109,7 +112,7 @@ def convert_pdf_chunk(file_name, chunk_path, chunk_info, chunk_num, total_chunks
         try:
             message = client.messages.create(
                 model="claude-opus-4-6",
-                max_tokens=16000,
+                max_tokens=20000,
                 messages=[
                     {"role": "user", "content": content}
                 ]
@@ -257,15 +260,16 @@ def process_large_pdf(input_file, input_dir=None, output_dir=None, pages_per_chu
 
 文件名：{input_file}
 
-请：
-1. 保留完整的文档结构（所有标题、小节、章节等）
-2. 转换所有文本内容
-3. 转换所有表格为Markdown表格
-4. 对流程图、图表等进行清晰描述
-5. 保留所有数据、数字、日期、金额等关键信息
-6. 删除任何占位符或未完成的内容标记
+请严格遵守以下要求：
+1. 【忽略水印】：忽略页面边缘的OA系统打印痕迹（如日期、系统链接、页码等）。
+2. 【提取结构】：保留完整的文档结构，所有表格转换为Markdown表格。
+3. 【⚠️ 防范错别字】：本文档涉及企业管理制度，请仔细辨认扫描件中的中文，严禁写错形近字！
+   - 注意职务：类似“查事长”大概率是“董事长”。
+   - 注意词汇：“综合”易被看成“统合”，“统一”易被看成“核一”，“管理”易看成“管外”。
+   - 注意常识：类似“眼线”等不符合业务语境的词，须纠正为“单线/主线”等。
+4. 【模糊处理】：遇到无法辨认的模糊手写字迹，请用 `[字迹不清]` 标记，不要生造词。
 
-请直接输出完整的Markdown内容。"""
+请直接输出完整的Markdown内容，无需多余解释。"""
             },
             {
                 "type": "document",
@@ -282,7 +286,7 @@ def process_large_pdf(input_file, input_dir=None, output_dir=None, pages_per_chu
             try:
                 message = client.messages.create(
                     model="claude-opus-4-6",
-                    max_tokens=16000,
+                    max_tokens=20000,
                     messages=[
                         {"role": "user", "content": content}
                     ]
