@@ -2,7 +2,9 @@
 # -*- coding: utf-8 -*-
 """
 综合文档转换程序（文件级串行处理）
-加入智能前置检测：自动识别纯图片/扫描件，跳过无效文本提取，直接进入Vision视觉处理。
+加入智能前置检测与熔断机制：
+1. 自动识别纯图片/扫描件，跳过无效文本提取。
+2. 对原生提取完美的PDF，直接熔断跳过大模型校对，防止格式遭破坏（画蛇添足）。
 """
 
 import os
@@ -19,7 +21,7 @@ if sys.platform == "win32":
     import io
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
-# ==================== 新增：扫描件智能探测 ====================
+# ==================== 扫描件智能探测 ====================
 def is_scanned_pdf(file_path):
     """通过采样判断是否为纯图片/扫描件PDF"""
     if file_path.suffix.lower() != '.pdf':
@@ -37,8 +39,8 @@ def is_scanned_pdf(file_path):
                 text = pdf.pages[i].extract_text() or ""
                 text_length += len(text.strip())
             
-            # 如果平均每页提取的文本少于 50 个字符（通常只是页眉页脚或系统水印），判定为扫描件
-            if text_length / pages_to_check < 50:
+            # 【优化】将判定阈值从50提高到200字/页，防止隐藏水印导致的误判
+            if text_length / pages_to_check < 200:
                 return True
     except ImportError:
         print("    ⚠️ 提示: 缺少 pdfplumber 库，无法进行扫描件前置检测")
@@ -356,7 +358,7 @@ def process_single_file(input_dir, output_dir, file_path):
     print(f"📄 开始处理: {file_name}")
     
     # ----------------------------------------------------
-    # 新增逻辑：前置检测扫描件，智能分流
+    # 前置检测扫描件，智能分流
     # ----------------------------------------------------
     is_scanned = False
     if file_path.suffix.lower() == '.pdf':
@@ -470,8 +472,27 @@ def process_single_file(input_dir, output_dir, file_path):
                 update_inventory_excel(output_dir, file_name, 'final_status', '警告', f'DOCX含有{image_count}张图片')
                 return True, None, record 
 
+        # ==================== 核心优化：原生PDF熔断机制 ====================
+        if file_path.suffix.lower() == '.pdf':
+            print(f"  💡 [智能跳过] 原生PDF提取完美，自动跳过大模型润色(步骤4)，防止破坏排版/图片。")
+            update_inventory_excel(output_dir, file_name, 'step4', '跳过', '原生质量完美')
+            
+            file_stem = file_path.stem
+            md_file = Path(output_dir) / (file_stem + '.md')
+            if md_file.exists():
+                record.output_size_mb = md_file.stat().st_size / (1024 * 1024)
+                with open(md_file, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                if '![' in content:
+                    record.has_images = True
+
+            record.status = "完成"
+            update_inventory_excel(output_dir, file_name, 'final_status', '完成', '完美提取(保持原生格式)')
+            return True, None, record
+        # ===================================================================
+
     # ----------------------------------------------------
-    # 步骤 4：全文内容校对与润色
+    # 步骤 4：全文内容校对与润色 (只有质量差、被Vision处理过的才会走到这里)
     # ----------------------------------------------------
     print(f"  [步骤4] 大模型 OCR 校对与润色...")
     update_inventory_excel(output_dir, file_name, 'step4', '进行中')
