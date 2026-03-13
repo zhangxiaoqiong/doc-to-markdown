@@ -139,7 +139,32 @@ def run_convert_docs_single_file(input_dir, output_dir, file_path):
         file_path.name
     ]
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
+
+    if result.returncode == 0:
+        return True, None
+    else:
+        error_msg = result.stderr if result.stderr else result.stdout
+        return False, error_msg
+
+def run_convert_xlsx_single_file(input_dir, output_dir, file_path):
+    """处理单个XLSX文件的转换"""
+    # 计算相对于input_dir的相对路径
+    try:
+        rel_path = file_path.relative_to(input_dir)
+    except ValueError:
+        # 如果无法计算相对路径，使用原路径
+        rel_path = file_path
+
+    cmd = [
+        sys.executable,
+        "convert_xlsx_all.py",
+        str(input_dir),
+        str(output_dir),
+        str(rel_path)
+    ]
+
+    result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
 
     if result.returncode == 0:
         return True, None
@@ -277,7 +302,7 @@ def run_convert_pdf_vision_single_file(input_dir, output_dir, file_path):
             "--output", str(output_dir)
         ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
 
         if result.returncode == 0:
             return True, None
@@ -311,7 +336,7 @@ def run_fix_markdown_single_file(output_dir, file_path):
             "--dir", str(temp_dir)
         ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
 
         if result.returncode == 0:
             shutil.copy(temp_md_file, md_file)
@@ -356,7 +381,39 @@ def process_single_file(input_dir, output_dir, file_path):
 
     print(f"\n==================================================")
     print(f"📄 开始处理: {file_name}")
-    
+
+    # ============ XLSX文件的特殊处理 ============
+    if file_path.suffix.lower() == '.xlsx':
+        print(f"  [步骤1] Excel转Markdown转换...")
+        update_inventory_excel(output_dir, file_name, 'step1', '进行中')
+        record.methods.append("convert_xlsx")
+
+        success, error = run_convert_xlsx_single_file(input_dir, output_dir, file_path)
+
+        if not success:
+            record.status = "失败"
+            record.notes = f"XLSX转换失败"
+            update_inventory_excel(output_dir, file_name, 'step1', '失败', error[:100] if error else "未知错误")
+            update_inventory_excel(output_dir, file_name, 'final_status', '失败', 'XLSX转换失败')
+            return False, f"XLSX转换失败: {error}", record
+
+        update_inventory_excel(output_dir, file_name, 'step1', '完成')
+        update_inventory_excel(output_dir, file_name, 'step2', '跳过', '无需质检')
+        update_inventory_excel(output_dir, file_name, 'step3', '跳过', 'XLSX不需要')
+        update_inventory_excel(output_dir, file_name, 'step4', '跳过', 'XLSX不需要')
+
+        # 记录最终输出大小
+        file_stem = file_path.stem
+        md_file = Path(output_dir) / (file_stem + '.md')
+        if md_file.exists():
+            record.output_size_mb = md_file.stat().st_size / (1024 * 1024)
+
+        record.status = "完成"
+        update_inventory_excel(output_dir, file_name, 'final_status', '完成', 'XLSX转换成功')
+        return True, None, record
+
+    # ============ PDF/DOCX的原有流程 ============
+
     # ----------------------------------------------------
     # 前置检测扫描件，智能分流
     # ----------------------------------------------------
@@ -794,12 +851,12 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
 
     source_files = sorted([
-        f for f in input_dir.glob('*')
-        if f.suffix.lower() in ['.pdf', '.docx']
+        f for f in input_dir.glob('**/*')
+        if f.is_file() and f.suffix.lower() in ['.pdf', '.docx', '.xlsx']
     ])
 
     if not source_files:
-        print(f"错误：没有找到PDF或DOCX文件在 {input_dir}")
+        print(f"错误：没有找到PDF、DOCX或XLSX文件在 {input_dir}")
         sys.exit(1)
 
     print("="*60)

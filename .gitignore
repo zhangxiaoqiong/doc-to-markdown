@@ -58,6 +58,6 @@ Thumbs.db
 .DS_Store
 
 # Project specific - Don't upload actual documents
-/知识库base/
+/知识库base*/
 /知识库md*/
 *.bak
