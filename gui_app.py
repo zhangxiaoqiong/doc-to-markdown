@@ -524,25 +524,29 @@ class MainWindow(QMainWindow):
         if not self.upload_panel.files:
             QMessageBox.warning(self, "提示", "请先选择文件")
             return
-        
+
         config = self.settings_panel.get_config()
         output_dir = Path(config['output_dir'])
-        
+
         # 创建输出目录
         output_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # 启动转换线程
         self.conversion_worker = ConversionWorker(
             self.upload_panel.files,
             str(output_dir),
             config['quality_threshold']
         )
-        
+
+        # 连接文件级反馈信号
+        self.conversion_worker.file_result.connect(self.on_file_converted)
+
+        # 连接转换进度和完成信号
         self.conversion_worker.progress_updated.connect(self.on_progress_updated)
         self.conversion_worker.finished.connect(self.on_conversion_finished)
-        
+
         self.conversion_worker.start()
-        
+
         # 更新UI状态
         self.convert_btn.setVisible(False)
         self.pause_btn.setVisible(True)
@@ -555,17 +559,23 @@ class MainWindow(QMainWindow):
         self.log_panel.add_log(status)
     
     def on_conversion_finished(self, success: bool, message: str, stats: dict):
-        """转换完成回调"""
+        """转换完成回调 - 使用真实统计数据"""
         self.convert_btn.setVisible(True)
         self.pause_btn.setVisible(False)
 
         if success:
+            # 使用真实数据而非硬编码
             self.log_panel.add_success(message)
+            completed = stats.get('completed', 0)
+            review = stats.get('review', 0)
+            failed = stats.get('failed', 0)
+            avg_quality = stats.get('avg_quality', 0.0)
+
             self.results_panel.show_results(
-                success=stats.get('completed', 0),
-                review=stats.get('review', 0),
-                failed=stats.get('failed', 0),
-                quality=stats.get('avg_quality', 0.0)
+                success=completed - review,  # 成功=完成-待审核
+                review=review,
+                failed=failed,
+                quality=avg_quality
             )
             self.right_tabs.setCurrentIndex(1)  # 显示结果面板
             QMessageBox.information(self, "完成", message)
@@ -574,7 +584,14 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "错误", message)
 
         self.update_status("就绪")
-    
+
+    def on_file_converted(self, file_name: str, success: bool, error_msg: str):
+        """单个文件转换完成的回调"""
+        if success:
+            self.log_panel.add_success(f"✓ {file_name}")
+        else:
+            self.log_panel.add_error(f"✗ {file_name}: {error_msg}")
+
     def pause_conversion(self):
         """暂停转换"""
         if self.conversion_worker:
