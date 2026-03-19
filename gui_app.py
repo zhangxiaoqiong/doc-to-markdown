@@ -52,9 +52,9 @@ class ConversionWorker(QThread):
                 if not self.is_running:
                     break
 
-                # 更新进度
+                # 更新进度（i+1表示已处理的文件数）
                 status_text = f"处理中: {file_path.name}"
-                self.progress_updated.emit(i, len(self.files), status_text)
+                self.progress_updated.emit(i + 1, len(self.files), status_text)
 
                 # 调用真实转换
                 try:

@@ -209,7 +209,10 @@ def convert_single_file(
             str(output_dir)
         ]
 
-        # 运行转换（超时30分钟）
+        # 添加模拟处理时间（增加2秒延迟让用户能看到进度），然后运行转换（超时30分钟）
+        import time
+        time.sleep(2)
+
         proc = subprocess.run(
             cmd,
             capture_output=True,
