@@ -209,14 +209,14 @@ def convert_single_file(
             str(output_dir)
         ]
 
-        # 添加模拟处理时间（增加2秒延迟让用户能看到进度），然后运行转换（超时30分钟）
-        import time
-        time.sleep(2)
-
+        # 运行转换（超时30分钟）
+        # 添加encoding='utf-8'解决Windows上的编码问题
         proc = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
+            encoding='utf-8',
+            errors='replace',
             timeout=1800,
             cwd=Path(__file__).parent
         )

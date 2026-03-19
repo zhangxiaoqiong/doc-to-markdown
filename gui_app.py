@@ -45,6 +45,8 @@ class ConversionWorker(QThread):
     def run(self):
         """运行真实转换"""
         try:
+            import time
+
             # 确保输出目录存在
             self.output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -55,6 +57,9 @@ class ConversionWorker(QThread):
                 # 更新进度（i+1表示已处理的文件数）
                 status_text = f"处理中: {file_path.name}"
                 self.progress_updated.emit(i + 1, len(self.files), status_text)
+
+                # 短暂延迟让UI能更新进度条显示（50ms）
+                time.sleep(0.05)
 
                 # 调用真实转换
                 try:
