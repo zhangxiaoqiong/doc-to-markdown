@@ -389,17 +389,18 @@ class ProgressPanel(QWidget):
 
 class ResultsPanel(QWidget):
     """结果展示面板"""
-    
+
     def __init__(self):
         super().__init__()
+        self.output_dir = None
         self.init_ui()
-    
+
     def init_ui(self):
         layout = QVBoxLayout()
-        
+
         # 统计
         layout.addWidget(QLabel("📊 转换结果"))
-        
+
         stats_layout = QHBoxLayout()
         self.result_success = QLabel("✓ 成功: 0")
         self.result_review = QLabel("⚠️ 待审核: 0")
@@ -410,7 +411,7 @@ class ResultsPanel(QWidget):
         stats_layout.addWidget(self.result_failed)
         stats_layout.addWidget(self.result_quality)
         layout.addLayout(stats_layout)
-        
+
         # 结果表格
         layout.addWidget(QLabel("文件详情:"))
         self.result_table = QTableWidget()
@@ -418,20 +419,21 @@ class ResultsPanel(QWidget):
         self.result_table.setHorizontalHeaderLabels(["文件名", "状态", "评分", "操作"])
         self.result_table.setMaximumHeight(200)
         layout.addWidget(self.result_table)
-        
+
         # 导出按钮
         export_layout = QHBoxLayout()
         self.export_btn = QPushButton("📥 导出结果")
         self.export_btn.setEnabled(False)
         self.open_folder_btn = QPushButton("📁 打开文件夹")
         self.open_folder_btn.setEnabled(False)
+        self.open_folder_btn.clicked.connect(self.open_output_folder)
         export_layout.addWidget(self.export_btn)
         export_layout.addWidget(self.open_folder_btn)
         layout.addLayout(export_layout)
-        
+
         layout.addStretch()
         self.setLayout(layout)
-    
+
     def show_results(self, success: int, review: int, failed: int, quality: float):
         """显示结果"""
         self.result_success.setText(f"✓ 成功: {success}")
@@ -440,6 +442,23 @@ class ResultsPanel(QWidget):
         self.result_quality.setText(f"质量评分: {quality:.1f}")
         self.export_btn.setEnabled(True)
         self.open_folder_btn.setEnabled(True)
+
+    def set_output_dir(self, path: str):
+        """设置输出目录"""
+        self.output_dir = Path(path)
+
+    def open_output_folder(self):
+        """打开输出文件夹"""
+        if self.output_dir and self.output_dir.exists():
+            import subprocess
+            if sys.platform == "win32":
+                subprocess.Popen(f'explorer /select,"{self.output_dir}"')
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", "-R", str(self.output_dir)])
+            else:
+                subprocess.Popen(["xdg-open", str(self.output_dir)])
+        else:
+            QMessageBox.warning(self, "提示", "输出目录不存在")
 
 
 class LogPanel(QWidget):
@@ -600,6 +619,9 @@ class MainWindow(QMainWindow):
         # 创建输出目录
         output_dir.mkdir(parents=True, exist_ok=True)
 
+        # 设置ResultsPanel的输出目录
+        self.results_panel.set_output_dir(str(output_dir))
+
         # 启动转换线程
         self.conversion_worker = ConversionWorker(
             self.upload_panel.files,
@@ -647,7 +669,16 @@ class MainWindow(QMainWindow):
                 quality=avg_quality
             )
             self.right_tabs.setCurrentIndex(1)  # 显示结果面板
-            QMessageBox.information(self, "完成", message)
+
+            # 显示详细的完成消息，包含输出目录
+            config = self.settings_panel.get_config()
+            output_dir = config['output_dir']
+            detailed_message = (
+                f"{message}\n\n"
+                f"📁 输出目录:\n{output_dir}\n\n"
+                f"点击'打开文件夹'查看转换结果"
+            )
+            QMessageBox.information(self, "转换完成", detailed_message)
         else:
             self.log_panel.add_error(message)
             QMessageBox.critical(self, "错误", message)
