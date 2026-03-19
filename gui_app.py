@@ -120,12 +120,13 @@ class ConversionWorker(QThread):
 class UploadPanel(QWidget):
     """文件上传面板"""
     files_added = pyqtSignal(list)
-    
+
     def __init__(self):
         super().__init__()
         self.files = []
+        self.current_folder = None
         self.init_ui()
-    
+
     def init_ui(self):
         layout = QVBoxLayout()
 
@@ -169,16 +170,21 @@ class UploadPanel(QWidget):
         btn_layout.addWidget(self.upload_btn)
         btn_layout.addWidget(self.folder_btn)
 
+        # 当前文件夹显示
+        self.folder_label = QLabel("📁 文件夹: 未选择")
+        self.folder_label.setStyleSheet("color: #999; font-size: 11px; padding: 5px;")
+
         # 文件列表
         self.file_list = QListWidget()
         self.file_list.setMaximumHeight(150)
 
         # 清空按钮
         clear_btn = QPushButton("清空列表")
-        clear_btn.clicked.connect(lambda: (self.file_list.clear(), self.files.clear()))
+        clear_btn.clicked.connect(lambda: (self.file_list.clear(), self.files.clear(), self.reset_folder_label()))
 
         layout.addWidget(QLabel("📄 文件选择"))
         layout.addLayout(btn_layout)
+        layout.addWidget(self.folder_label)
         layout.addWidget(QLabel("已添加文件:"))
         layout.addWidget(self.file_list)
         layout.addWidget(clear_btn)
@@ -205,6 +211,11 @@ class UploadPanel(QWidget):
             "选择文件夹"
         )
         if folder_path:
+            self.current_folder = folder_path
+            # 更新文件夹显示标签
+            folder_name = Path(folder_path).name
+            self.folder_label.setText(f"📁 文件夹: {folder_name}")
+
             # 扫描文件夹中的所有支持的文件
             folder = Path(folder_path)
             supported_extensions = {'.docx', '.pdf', '.xlsx'}
@@ -222,6 +233,11 @@ class UploadPanel(QWidget):
             else:
                 from PyQt6.QtWidgets import QMessageBox
                 QMessageBox.information(self, "提示", f"文件夹中没有找到DOCX、PDF或XLSX文件")
+
+    def reset_folder_label(self):
+        """重置文件夹显示"""
+        self.current_folder = None
+        self.folder_label.setText("📁 文件夹: 未选择")
 
     def update_list(self):
         """更新文件列表显示"""
