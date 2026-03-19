@@ -420,16 +420,13 @@ class ResultsPanel(QWidget):
         self.result_table.setMaximumHeight(200)
         layout.addWidget(self.result_table)
 
-        # 导出按钮
-        export_layout = QHBoxLayout()
-        self.export_btn = QPushButton("📥 导出结果")
-        self.export_btn.setEnabled(False)
+        # 操作按钮
+        btn_layout = QHBoxLayout()
         self.open_folder_btn = QPushButton("📁 打开文件夹")
         self.open_folder_btn.setEnabled(False)
         self.open_folder_btn.clicked.connect(self.open_output_folder)
-        export_layout.addWidget(self.export_btn)
-        export_layout.addWidget(self.open_folder_btn)
-        layout.addLayout(export_layout)
+        btn_layout.addWidget(self.open_folder_btn)
+        layout.addLayout(btn_layout)
 
         layout.addStretch()
         self.setLayout(layout)
@@ -440,7 +437,6 @@ class ResultsPanel(QWidget):
         self.result_review.setText(f"⚠️ 待审核: {review}")
         self.result_failed.setText(f"✗ 失败: {failed}")
         self.result_quality.setText(f"质量评分: {quality:.1f}")
-        self.export_btn.setEnabled(True)
         self.open_folder_btn.setEnabled(True)
 
     def set_output_dir(self, path: str):
