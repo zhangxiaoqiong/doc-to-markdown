@@ -75,6 +75,23 @@ echo $ANTHROPIC_AUTH_TOKEN
 
 ## 使用指南
 
+### 快速开始（GUI版）
+
+最简便的方式是使用图形界面：
+
+```bash
+python gui_app.py
+```
+
+详见 [GUI使用指南](GUI_USAGE.md)
+
+**GUI功能**：
+- ✅ 支持DOCX、PDF、XLSX转换
+- ✅ 拖拽上传文件
+- ✅ 实时进度显示
+- ✅ 结果和日志导出
+- ✅ 配置自动保存
+
 ### 快速开始：一键转换所有文件
 
 \`\`\`bash
