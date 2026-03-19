@@ -128,16 +128,19 @@ class UploadPanel(QWidget):
     
     def init_ui(self):
         layout = QVBoxLayout()
-        
-        # 上传区域
-        self.upload_btn = QPushButton("📁 选择文件")
+
+        # 按钮行
+        btn_layout = QHBoxLayout()
+
+        # 选择文件按钮
+        self.upload_btn = QPushButton("📄 选择文件")
         self.upload_btn.setMinimumHeight(60)
         self.upload_btn.setStyleSheet("""
             QPushButton {
                 background-color: #f0f0f0;
                 border: 2px dashed #1a73e8;
                 border-radius: 8px;
-                font-size: 14px;
+                font-size: 13px;
                 color: #202124;
             }
             QPushButton:hover {
@@ -145,27 +148,47 @@ class UploadPanel(QWidget):
             }
         """)
         self.upload_btn.clicked.connect(self.select_files)
-        
+
+        # 选择文件夹按钮
+        self.folder_btn = QPushButton("📁 选择文件夹")
+        self.folder_btn.setMinimumHeight(60)
+        self.folder_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #f0f0f0;
+                border: 2px dashed #1a73e8;
+                border-radius: 8px;
+                font-size: 13px;
+                color: #202124;
+            }
+            QPushButton:hover {
+                background-color: #e8f0fe;
+            }
+        """)
+        self.folder_btn.clicked.connect(self.select_folder)
+
+        btn_layout.addWidget(self.upload_btn)
+        btn_layout.addWidget(self.folder_btn)
+
         # 文件列表
         self.file_list = QListWidget()
         self.file_list.setMaximumHeight(150)
-        
+
         # 清空按钮
         clear_btn = QPushButton("清空列表")
         clear_btn.clicked.connect(lambda: (self.file_list.clear(), self.files.clear()))
-        
+
         layout.addWidget(QLabel("📄 文件选择"))
-        layout.addWidget(self.upload_btn)
+        layout.addLayout(btn_layout)
         layout.addWidget(QLabel("已添加文件:"))
         layout.addWidget(self.file_list)
         layout.addWidget(clear_btn)
-        
+
         self.setLayout(layout)
     
     def select_files(self):
         """选择文件"""
         files, _ = QFileDialog.getOpenFileNames(
-            self, 
+            self,
             "选择文档",
             "",
             "Document Files (*.docx *.pdf *.xlsx);;All Files (*)"
@@ -174,7 +197,32 @@ class UploadPanel(QWidget):
             self.files.extend(files)
             self.update_list()
             self.files_added.emit(self.files)
-    
+
+    def select_folder(self):
+        """选择文件夹并自动扫描支持的文件"""
+        folder_path = QFileDialog.getExistingDirectory(
+            self,
+            "选择文件夹"
+        )
+        if folder_path:
+            # 扫描文件夹中的所有支持的文件
+            folder = Path(folder_path)
+            supported_extensions = {'.docx', '.pdf', '.xlsx'}
+            found_files = []
+
+            for ext in supported_extensions:
+                found_files.extend([str(f) for f in folder.glob(f'*{ext}')])
+
+            if found_files:
+                # 只添加未在列表中的文件
+                new_files = [f for f in found_files if f not in self.files]
+                self.files.extend(new_files)
+                self.update_list()
+                self.files_added.emit(self.files)
+            else:
+                from PyQt6.QtWidgets import QMessageBox
+                QMessageBox.information(self, "提示", f"文件夹中没有找到DOCX、PDF或XLSX文件")
+
     def update_list(self):
         """更新文件列表显示"""
         self.file_list.clear()
