@@ -710,8 +710,9 @@ class MainMenuFrame(QWidget):
         self.setLayout(layout)
 
     def create_menu_button(self, title: str, description: str, workflow_type: str):
-        """创建菜单按钮"""
-        btn = QPushButton()
+        """创建菜单按钮 - 直接显示多行文本"""
+        text = f"{title}\n\n{description}"
+        btn = QPushButton(text)
         btn.setMinimumHeight(80)
         btn.setStyleSheet("""
             QPushButton {
@@ -728,31 +729,7 @@ class MainMenuFrame(QWidget):
                 border: 2px solid #1a73e8;
             }
         """)
-
-        # 创建布局显示标题和描述
-        layout = QVBoxLayout()
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(5)
-
-        title_label = QLabel(title)
-        title_font = QFont()
-        title_font.setBold(True)
-        title_font.setPointSize(11)
-        title_label.setFont(title_font)
-        layout.addWidget(title_label)
-
-        desc_label = QLabel(description)
-        desc_font = QFont()
-        desc_font.setPointSize(10)
-        desc_label.setFont(desc_font)
-        desc_label.setStyleSheet("color: #666;")
-        layout.addWidget(desc_label)
-
-        # 无法直接在QPushButton中嵌套布局，所以用QWidget包装
-        container = QWidget()
-        container.setLayout(layout)
         btn.clicked.connect(lambda: self.main_window.show_workflow(workflow_type))
-
         return btn
 
 
