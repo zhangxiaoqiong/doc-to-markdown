@@ -257,7 +257,7 @@ def _process_rows(rows, sheet_name, enable_row_descriptions=False):
             # Output: table header + row
             markdown_lines.append("")
             markdown_lines.append("| " + " | ".join(clean_headers) + " |")
-            markdown_lines.append("|" + "|".join(["---"] * len(clean_headers)) + "|")
+            markdown_lines.append("| " + " | ".join(["---"] * len(clean_headers)) + " |")
             markdown_lines.append("| " + " | ".join(clean_row_data) + " |")
 
             # Generate and append description
