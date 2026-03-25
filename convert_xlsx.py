@@ -256,11 +256,11 @@ def _process_rows(rows, sheet_name, enable_row_descriptions=False, max_rows_with
             if not any(clean_row_data):  # Skip empty rows
                 continue
 
-            # Output: table header + row
+            # Output: field-value pairs (definition list format)
             markdown_lines.append("")
-            markdown_lines.append("| " + " | ".join(clean_headers) + " |")
-            markdown_lines.append("|" + "|".join(["------"] * len(clean_headers)) + "|")
-            markdown_lines.append("| " + " | ".join(clean_row_data) + " |")
+            for header, value in zip(clean_headers, clean_row_data):
+                if header and value:
+                    markdown_lines.append(f"**{header}:** {value}")
 
             # Generate and append description only for first N rows
             if current_row_count < rows_with_desc:
@@ -269,7 +269,8 @@ def _process_rows(rows, sheet_name, enable_row_descriptions=False, max_rows_with
                     markdown_lines.append("")
                     markdown_lines.append(description)
 
-            current_row_count += 1
+            markdown_lines.append("")
+            markdown_lines.append("---")
 
         return markdown_lines
 
