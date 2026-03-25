@@ -240,7 +240,7 @@ def _process_rows(rows, sheet_name, enable_row_descriptions=False, max_rows_with
 
     # If descriptions enabled, use new table format for all sheets
     if enable_row_descriptions:
-        clean_headers = [str(h).strip() if h else "" for h in header_row]
+        clean_headers = [str(h).strip().replace('\n', '<br>').replace('\r', '') if h else "" for h in header_row]
 
         # Count total non-empty rows
         total_rows = sum(1 for r in data_rows if r and not all(cell is None for cell in r))
@@ -251,7 +251,7 @@ def _process_rows(rows, sheet_name, enable_row_descriptions=False, max_rows_with
             if not row or all(cell is None for cell in row):
                 continue
 
-            clean_row_data = [str(cell).strip() if cell else "" for cell in row]
+            clean_row_data = [str(cell).strip().replace('\n', '<br>').replace('\r', '') if cell else "" for cell in row]
 
             if not any(clean_row_data):  # Skip empty rows
                 continue
@@ -286,9 +286,9 @@ def _process_rows(rows, sheet_name, enable_row_descriptions=False, max_rows_with
             continue
 
         # Extract first 3 columns for common processing
-        col0 = str(row[0]).strip() if row[0] else ""
-        col1 = str(row[1]).strip() if len(row) > 1 and row[1] else ""
-        col2 = str(row[2]).strip() if len(row) > 2 and row[2] else ""
+        col0 = str(row[0]).strip().replace('\n', '<br>').replace('\r', '') if row[0] else ""
+        col1 = str(row[1]).strip().replace('\n', '<br>').replace('\r', '') if len(row) > 1 and row[1] else ""
+        col2 = str(row[2]).strip().replace('\n', '<br>').replace('\r', '') if len(row) > 2 and row[2] else ""
 
         if not col1:  # Need at least column 1 (title/question)
             continue
@@ -309,7 +309,7 @@ def _process_rows(rows, sheet_name, enable_row_descriptions=False, max_rows_with
         # Add all fields with their header labels
         for col_idx, header in enumerate(header_row):
             if col_idx < len(row) and row[col_idx]:
-                cell_val = str(row[col_idx]).strip()
+                cell_val = str(row[col_idx]).strip().replace('\n', '<br>').replace('\r', '')
                 if cell_val and cell_val != 'None':
                     header_str = str(header).strip() if header else f"字段{col_idx+1}"
                     markdown_lines.append(f"**{header_str}:** {cell_val}")
