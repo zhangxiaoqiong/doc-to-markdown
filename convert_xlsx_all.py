@@ -19,13 +19,13 @@ if sys.platform == "win32":
 from convert_xlsx import excel_to_markdown_by_sheets
 
 
-def convert_xlsx_single_file(input_dir: Path, output_dir: Path, file_path: Path) -> Tuple[bool, Optional[str]]:
+def convert_xlsx_single_file(input_dir: Path, output_dir: Path, file_path: Path, enable_row_descriptions: bool = False) -> Tuple[bool, Optional[str]]:
     """Convert a single XLSX file to markdown, generating separate files for each sheet if needed."""
     try:
         if not file_path.exists():
             return False, f"文件不存在: {file_path}"
 
-        sheet_markdowns = excel_to_markdown_by_sheets(str(file_path))
+        sheet_markdowns = excel_to_markdown_by_sheets(str(file_path), enable_row_descriptions=enable_row_descriptions)
 
         if not sheet_markdowns:
             return False, "转换结果为空"
@@ -51,28 +51,39 @@ def convert_xlsx_single_file(input_dir: Path, output_dir: Path, file_path: Path)
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 3:
-        print("Usage: python convert_xlsx_all.py <input_dir> <output_dir> [file_path]")
-        sys.exit(1)
+    import argparse
 
-    input_dir = Path(sys.argv[1])
-    output_dir = Path(sys.argv[2])
+    parser = argparse.ArgumentParser(description="Convert XLSX file to Markdown with optional row descriptions")
+    parser.add_argument("input_dir", help="Input directory")
+    parser.add_argument("output_dir", help="Output directory")
+    parser.add_argument("file_path", help="Path to XLSX file (relative or absolute)")
+    parser.add_argument(
+        "--enable-row-descriptions",
+        action="store_true",
+        default=False,
+        help="Enable LLM-generated descriptions for each row"
+    )
 
-    # If file_path provided, use it directly (it may be relative path or absolute)
-    if len(sys.argv) >= 4:
-        file_arg = sys.argv[3]
-        # If it's a relative path within input_dir, construct full path
-        file_path = Path(file_arg)
-        if not file_path.is_absolute():
-            # Check if it's relative to input_dir
-            full_path = input_dir / file_arg
-            if full_path.exists():
-                file_path = full_path
-    else:
-        print("Error: file_path is required")
-        sys.exit(1)
+    args = parser.parse_args()
 
-    success, error = convert_xlsx_single_file(input_dir, output_dir, file_path)
+    input_dir = Path(args.input_dir)
+    output_dir = Path(args.output_dir)
+
+    # Handle file_path (same as before)
+    file_arg = args.file_path
+    file_path = Path(file_arg)
+    if not file_path.is_absolute():
+        # Check if it's relative to input_dir
+        full_path = input_dir / file_arg
+        if full_path.exists():
+            file_path = full_path
+
+    success, error = convert_xlsx_single_file(
+        input_dir,
+        output_dir,
+        file_path,
+        enable_row_descriptions=args.enable_row_descriptions
+    )
 
     if success:
         print(f"✓ Successfully converted: {file_arg}")

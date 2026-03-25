@@ -147,7 +147,7 @@ def run_convert_docs_single_file(input_dir, output_dir, file_path):
         error_msg = result.stderr if result.stderr else result.stdout
         return False, error_msg
 
-def run_convert_xlsx_single_file(input_dir, output_dir, file_path):
+def run_convert_xlsx_single_file(input_dir, output_dir, file_path, enable_row_descriptions=False):
     """处理单个XLSX文件的转换"""
     # 计算相对于input_dir的相对路径
     try:
@@ -163,6 +163,9 @@ def run_convert_xlsx_single_file(input_dir, output_dir, file_path):
         str(output_dir),
         str(rel_path)
     ]
+
+    if enable_row_descriptions:
+        cmd.append("--enable-row-descriptions")
 
     result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
 
@@ -373,7 +376,7 @@ def save_raw_pdf_output(output_dir, file_path):
 
     return False
 
-def process_single_file(input_dir, output_dir, file_path):
+def process_single_file(input_dir, output_dir, file_path, enable_row_descriptions=False):
     """处理单个文件的完整流程（4步分流版）"""
     file_name = file_path.name
     record = ProcessRecord(file_name)
@@ -388,7 +391,7 @@ def process_single_file(input_dir, output_dir, file_path):
         update_inventory_excel(output_dir, file_name, 'step1', '进行中')
         record.methods.append("convert_xlsx")
 
-        success, error = run_convert_xlsx_single_file(input_dir, output_dir, file_path)
+        success, error = run_convert_xlsx_single_file(input_dir, output_dir, file_path, enable_row_descriptions)
 
         if not success:
             record.status = "失败"
@@ -839,6 +842,8 @@ def main():
     parser = argparse.ArgumentParser(description='综合文档转换程序：智能分流、四步精细化处理')
     parser.add_argument('--input', '-i', default='知识库base', help='输入目录')
     parser.add_argument('--output', '-o', default='知识库md_v1.0', help='输出目录')
+    parser.add_argument('--enable-row-descriptions', action='store_true', default=False,
+                        help='Enable LLM-generated descriptions for each table row (XLSX only)')
     args = parser.parse_args()
 
     input_dir = Path(args.input)
@@ -902,7 +907,7 @@ def main():
         else:
             print(f"\n[断点续传] {file_name} - 准备从 {current_step} 继续...")
 
-        success, error_msg, record = process_single_file(input_dir, output_dir, file_path)
+        success, error_msg, record = process_single_file(input_dir, output_dir, file_path, args.enable_row_descriptions)
         records.append(record)
 
         if success:
