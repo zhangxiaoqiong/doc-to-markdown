@@ -237,12 +237,8 @@ def _process_rows(rows, sheet_name, enable_row_descriptions=False):
     header_row = rows[0]
     data_rows = rows[1:]
 
-    # Determine if this is Q&A format (3 columns: category, question, answer)
-    # or table format (multiple columns with headers)
-    is_qa_format = len(header_row) >= 3 and all(header_row[i] for i in range(3))
-
-    # If descriptions enabled and NOT Q&A format, use new table format
-    if enable_row_descriptions and not is_qa_format:
+    # If descriptions enabled, use new table format for all sheets
+    if enable_row_descriptions:
         clean_headers = [str(h).strip() if h else "" for h in header_row]
 
         for row in data_rows:
@@ -267,6 +263,11 @@ def _process_rows(rows, sheet_name, enable_row_descriptions=False):
                 markdown_lines.append(description)
 
         return markdown_lines
+
+    # Original logic: descriptions disabled
+    # Determine if this is Q&A format (3 columns: category, question, answer)
+    # or table format (multiple columns with headers)
+    is_qa_format = len(header_row) >= 3 and all(header_row[i] for i in range(3))
 
     # Original logic: Q&A format or descriptions disabled
     current_category = None
