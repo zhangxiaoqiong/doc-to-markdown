@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 财务文档转换程序
-使用Claude API将DOCX和PDF文件转换为Markdown格式（保持图文表绝对顺序）
+使用Claude API将DOCX文件转换为Markdown格式（保持图文表绝对顺序）
 """
 
 import os
@@ -26,12 +26,6 @@ except ImportError:
     print("需要安装 python-docx: pip install python-docx")
     sys.exit(1)
 
-try:
-    import pdfplumber
-except ImportError:
-    print("需要安装 pdfplumber: pip install pdfplumber")
-    sys.exit(1)
-
 
 def extract_docx_content(file_path, image_dir):
     """从DOCX文件提取内容，严格保持文字、图片、表格的原有顺序"""
@@ -41,11 +35,11 @@ def extract_docx_content(file_path, image_dir):
 
     # 遍历文档的每一个块级元素（段落和表格），保证从上到下的顺序
     for child in doc.element.body.iterchildren():
-        
+
         # 1. 如果是段落（包含文字和行内图片）
         if isinstance(child, CT_P):
             para = Paragraph(child, doc)
-            
+
             # 优先提取该段落中嵌入的图片
             for blip in child.xpath('.//a:blip'):
                 # 获取图片关联ID
@@ -55,20 +49,20 @@ def extract_docx_content(file_path, image_dir):
                         image_part = doc.part.rels[rId].target_part
                         ext = image_part.content_type.split('/')[-1]
                         if ext == 'jpeg': ext = 'jpg'
-                        
+
                         img_name = f"image_{image_counter}.{ext}"
                         img_path = os.path.join(image_dir, img_name)
-                        
+
                         # 保存图片
                         with open(img_path, "wb") as f:
                             f.write(image_part.blob)
-                            
+
                         # 在当前位置插入图片占位符
                         content.append(f"\n[IMAGE: {img_name}]\n")
                         image_counter += 1
                     except Exception as e:
                         print(f"\n  [警告] DOCX图片提取失败: {e}")
-            
+
             # 提取段落文本
             if para.text.strip():
                 content.append(para.text)
@@ -85,52 +79,12 @@ def extract_docx_content(file_path, image_dir):
     return "\n".join(content)
 
 
-def extract_pdf_content(file_path, image_dir):
-    """从PDF文件提取文本内容、表格和图片"""
-    content = []
-    image_counter = 1
-
-    with pdfplumber.open(file_path) as pdf:
-        for page_num, page in enumerate(pdf.pages, 1):
-            content.append(f"--- Page {page_num} ---\n")
-
-            # PDF受限于格式，依然按 文本 -> 图片 -> 表格 的顺序输出每页内容
-            # 1. 提取文本
-            text = page.extract_text()
-            if text:
-                content.append(text)
-
-            # 2. 提取图片
-            if page.images:
-                for img in page.images:
-                    try:
-                        if img["width"] < 50 or img["height"] < 50:
-                            continue
-                            
-                        bbox = (img["x0"], img["top"], img["x1"], img["bottom"])
-                        img_name = f"page{page_num}_img{image_counter}.png"
-                        img_path = os.path.join(image_dir, img_name)
-                        
-                        cropped = page.crop(bbox)
-                        img_obj = cropped.to_image(resolution=400)
-                        img_obj.save(img_path, format="PNG")
-                        
-                        content.append(f"\n[IMAGE: {img_name}]\n")
-                        image_counter += 1
-                    except Exception:
-                        pass 
-
-            # 3. 提取表格
-            tables = page.extract_tables()
-            if tables:
-                for table in tables:
-                    content.append("\n[TABLE]")
-                    for row in table:
-                        row_data = [str(cell) if cell else "" for cell in row]
-                        content.append(" | ".join(row_data))
-                    content.append("[/TABLE]\n")
-
-    return "\n".join(content)
+def _extract_text_from_message(message):
+    """从消息内容中提取文本，兼容 ThinkingBlock 返回。"""
+    for block in message.content:
+        if hasattr(block, 'text'):
+            return block.text
+    return ""
 
 
 def convert_with_claude(file_name, file_content, file_base_name, max_retries=3):
@@ -178,7 +132,7 @@ def convert_with_claude(file_name, file_content, file_base_name, max_retries=3):
                 system=system_prompt
             )
             print("✓")
-            return message.content[0].text
+            return _extract_text_from_message(message)
         except Exception as e:
             error_str = str(e)
             if "429" in error_str or "500" in error_str or "503" in error_str:
@@ -205,9 +159,7 @@ def process_files(input_dir=None, output_dir=None, file_list=None):
     failed_log = output_dir / "failed.log"
 
     if file_list is None:
-        supported_files = []
-        for ext in ['*.docx', '*.pdf']:
-            supported_files.extend(input_dir.glob(ext))
+        supported_files = list(input_dir.glob('*.docx'))
         files_to_process = [f.name for f in supported_files]
     else:
         files_to_process = file_list
@@ -222,7 +174,7 @@ def process_files(input_dir=None, output_dir=None, file_list=None):
     for file_name in files_to_process:
         file_path = input_dir / file_name
         file_base_name = file_name.rsplit('.', 1)[0]
-        
+
         image_dir = output_dir / "assets" / file_base_name
 
         if not file_path.exists():
@@ -231,15 +183,13 @@ def process_files(input_dir=None, output_dir=None, file_list=None):
             continue
 
         try:
-            if file_name.endswith('.docx'):
-                image_dir.mkdir(parents=True, exist_ok=True)
-                file_content = extract_docx_content(file_path, image_dir)
-            elif file_name.endswith('.pdf'):
-                image_dir.mkdir(parents=True, exist_ok=True)
-                file_content = extract_pdf_content(file_path, image_dir)
-            else:
+            if not file_name.endswith('.docx'):
                 print(f"[失败] 不支持的文件格式: {file_name}")
+                results.append((file_name, "不支持的格式"))
                 continue
+
+            image_dir.mkdir(parents=True, exist_ok=True)
+            file_content = extract_docx_content(file_path, image_dir)
 
             if image_dir.exists() and not any(image_dir.iterdir()):
                 image_dir.rmdir()
@@ -277,7 +227,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     import argparse
-    parser = argparse.ArgumentParser(description='将DOCX和PDF文件转换为Markdown格式')
+    parser = argparse.ArgumentParser(description='将DOCX文件转换为Markdown格式')
     parser.add_argument('--input', '-i', default=None, help='输入目录')
     parser.add_argument('--output', '-o', default=None, help='输出目录')
     parser.add_argument('files', nargs='*', help='要转换的文件列表')

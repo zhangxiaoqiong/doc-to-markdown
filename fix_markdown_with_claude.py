@@ -17,6 +17,14 @@ if sys.platform == "win32":
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 
+def _extract_text_from_message(message):
+    """从消息内容中提取文本，兼容 ThinkingBlock 返回。"""
+    for block in message.content:
+        if hasattr(block, 'text'):
+            return block.text
+    return ""
+
+
 def fix_markdown_content(file_path, max_retries=3):
     """用Claude检查并修复Markdown中的OCR错误，支持重试"""
 
@@ -67,7 +75,7 @@ def fix_markdown_content(file_path, max_retries=3):
                 system=system_prompt
             )
 
-            fixed_content = message.content[0].text
+            fixed_content = _extract_text_from_message(message)
 
             # 保存修复后的内容
             with open(file_path, 'w', encoding='utf-8') as f:

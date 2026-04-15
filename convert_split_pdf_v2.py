@@ -6,8 +6,10 @@
 
 import os
 import sys
+import io
 import base64
 import time
+import random
 from pathlib import Path
 from anthropic import Anthropic
 
@@ -19,6 +21,12 @@ try:
     from pypdf import PdfReader, PdfWriter
 except ImportError:
     print("需要安装 pypdf: pip install pypdf")
+    sys.exit(1)
+
+try:
+    from PIL import Image
+except ImportError:
+    print("需要安装 Pillow: pip install Pillow")
     sys.exit(1)
 
 
@@ -61,28 +69,107 @@ def split_pdf(file_path, pages_per_chunk=10, temp_dir=None):
         return []
 
 
+def compress_pdf_page(page_data: bytes, max_size_mb: float = 4.5) -> bytes:
+    """压缩PDF页面图片以满足API大小限制"""
+    try:
+        img = Image.open(io.BytesIO(page_data))
+
+        # 转换为RGB
+        if img.mode in ('RGBA', 'LA', 'P'):
+            background = Image.new('RGB', img.size, (255, 255, 255))
+            if img.mode == 'P':
+                img = img.convert('RGBA')
+            background.paste(img, mask=img.split()[-1] if 'A' in img.mode else None)
+            img = background
+        else:
+            img = img.convert('RGB')
+
+        # 压缩
+        quality = 90
+        max_size_bytes = int(max_size_mb * 1024 * 1024)
+
+        while quality > 10:
+            output = io.BytesIO()
+            img.save(output, format='JPEG', quality=quality, optimize=True)
+            compressed_data = output.getvalue()
+
+            if len(compressed_data) <= max_size_bytes:
+                return compressed_data
+
+            quality -= 10
+
+        # 二次缩放
+        width, height = img.size
+        while width > 1000 or height > 1000:
+            scale = min(1000 / width, 1000 / height, 1.0)
+            width = int(width * scale)
+            height = int(height * scale)
+            resized = img.resize((width, height), Image.Resampling.LANCZOS)
+            output = io.BytesIO()
+            resized.save(output, format='JPEG', quality=80, optimize=True)
+            compressed_data = output.getvalue()
+            if len(compressed_data) <= max_size_bytes:
+                return compressed_data
+
+        return page_data
+
+    except Exception as e:
+        print(f"      图片压缩异常: {str(e)}")
+        return page_data
+
+
 def pdf_to_base64(file_path):
     """将PDF文件转换为base64"""
     with open(file_path, 'rb') as f:
         return base64.standard_b64encode(f.read()).decode("utf-8")
 
 
+def convert_pdf_pages_to_images(chunk_path, dpi=150):
+    """将PDF块的每一页转换为图片，返回图片数据列表"""
+    try:
+        import fitz  # PyMuPDF
+        doc = fitz.open(chunk_path)
+        image_data_list = []
+        for page in doc:
+            mat = fitz.Matrix(dpi / 72, dpi / 72)
+            pix = page.get_pixmap(matrix=mat)
+            buf = io.BytesIO()
+            pix.pil_save(buf, format='JPEG', quality=90)
+            image_data_list.append(buf.getvalue())
+        doc.close()
+        return image_data_list
+    except Exception as e:
+        print(f"PDF转图片失败: {str(e)}")
+        return []
+
+
 def convert_pdf_chunk(file_name, chunk_path, chunk_info, chunk_num, total_chunks, max_retries=3):
-    """转换单个PDF块，支持重试"""
+    """转换单个PDF块，支持重试 - 使用image类型代替document类型"""
     client = Anthropic(
         api_key=os.getenv("ANTHROPIC_AUTH_TOKEN"),
         base_url=os.getenv("ANTHROPIC_BASE_URL")
     )
 
-    pdf_base64 = pdf_to_base64(chunk_path)
-    file_size_mb = len(pdf_base64) / (1024 * 1024)
+    # 将PDF转为图片列表
+    image_data_list = convert_pdf_pages_to_images(chunk_path)
+    if not image_data_list:
+        print("x (PDF转图片失败)")
+        return None
 
-    print(f"[{chunk_num}/{total_chunks}] 第 {chunk_info['pages']} 页 ({file_size_mb:.2f}MB)... ", end='', flush=True)
+    # 压缩每张图片
+    compressed_images = []
+    for img_data in image_data_list:
+        compressed = compress_pdf_page(img_data)
+        compressed_images.append(compressed)
 
+    total_size_mb = sum(len(d) for d in compressed_images) / (1024 * 1024)
+    print(f"[{chunk_num}/{total_chunks}] 第 {chunk_info['pages']} 页 ({len(compressed_images)}张图片, {total_size_mb:.2f}MB)... ", end='', flush=True)
+
+    # 构建内容：文本prompt + 多张图片
     content = [
         {
             "type": "text",
-            "text": f"""请将以下PDF片段（第 {chunk_info['pages']} 页）完整转换为Markdown。
+            "text": f"""请将以下PDF页面（第 {chunk_info['pages']} 页）完整转换为Markdown。
 
 文件名：{file_name}
 
@@ -90,22 +177,26 @@ def convert_pdf_chunk(file_name, chunk_path, chunk_info, chunk_num, total_chunks
 1. 【忽略水印】：忽略页面边缘的OA系统打印痕迹（如日期、网址链接、页码等）。
 2. 【提取结构】：保留所有标题、表格、列表等结构，图表用文字清晰描述。
 3. 【⚠️ 防范错别字】：本文档是企业管理/财务制度，请仔细辨认中文字体，严禁将形近字认错！
-   - 注意职务：如识别出类似“查事长”，须纠正为“董事长”或“副总裁”。
-   - 注意词汇：是“综合”不是“统合”，是“统一”不是“核一”，是“管理”不是“管外”。
-   - 注意业务词：是“单线/全线”而不是“眼线”。
+   - 注意职务：如识别出类似"查事长"，须纠正为"董事长"或"副总裁"。
+   - 注意词汇：是"综合"不是"统合"，是"统一"不是"核一"，是"管理"不是"管外"。
+   - 注意业务词：是"单线/全线"而不是"眼线"。
 4. 【模糊处理】：遇到手写签名或极其模糊的字，请结合上下文推测；若无法辨别，请直接写 `[字迹不清]`，绝不生造生僻词。
 
 请直接输出Markdown，无需其他说明。"""
-        },
-        {
-            "type": "document",
-            "source": {
-                "type": "base64",
-                "media_type": "application/pdf",
-                "data": pdf_base64
-            }
         }
     ]
+
+    # 添加所有图片
+    for img_data in compressed_images:
+        img_base64 = base64.standard_b64encode(img_data).decode("utf-8")
+        content.append({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": "image/jpeg",
+                "data": img_base64
+            }
+        })
 
     # 重试逻辑
     for attempt in range(max_retries):
@@ -117,20 +208,25 @@ def convert_pdf_chunk(file_name, chunk_path, chunk_info, chunk_num, total_chunks
                     {"role": "user", "content": content}
                 ]
             )
-            result = message.content[0].text
-            print("✓")
+            # 提取文本内容（兼容ThinkingBlock）
+            result = ""
+            for block in message.content:
+                if hasattr(block, 'text'):
+                    result = block.text
+                    break
+            print("OK")
             return result
         except Exception as e:
             error_str = str(e)
             # 判断是否可重试的错误
             if "429" in error_str or "500" in error_str or "503" in error_str:
                 if attempt < max_retries - 1:
-                    wait_time = 2 ** attempt
-                    print(f"\n  [重试 {attempt+1}/{max_retries-1}] 等待 {wait_time}s... ", end='', flush=True)
+                    wait_time = (2 ** attempt) + random.uniform(0, 1)
+                    print(f"\n  [重试 {attempt+1}/{max_retries-1}] 等待 {wait_time:.1f}s... ", end='', flush=True)
                     time.sleep(wait_time)
                     continue
             # 其他错误或最后一次重试失败
-            print(f"✗ ({error_str[:50]})")
+            print(f"x ({error_str[:80]})")
             return None
 
 
@@ -238,20 +334,22 @@ def process_large_pdf(input_file, input_dir=None, output_dir=None, pages_per_chu
     file_size_mb = file_path.stat().st_size / (1024 * 1024)
 
     if file_size_mb < min_size_mb:
-        print(f"⚠️  文件大小仅 {file_size_mb:.1f}MB，小于 {min_size_mb}MB 的分割阈值")
+        print(f"WARNING: 文件大小仅 {file_size_mb:.1f}MB，小于 {min_size_mb}MB 的分割阈值")
         print(f"跳过分割，直接用Vision API处理整个文件\n")
 
-        # 直接用Vision API处理整个文件
-        from anthropic import Anthropic
-        import base64
+        # 将PDF转为图片后用image类型处理
+        image_data_list = convert_pdf_pages_to_images(file_path)
+        if not image_data_list:
+            print("PDF转图片失败")
+            return
 
-        client = Anthropic(
-            api_key=os.getenv("ANTHROPIC_AUTH_TOKEN"),
-            base_url=os.getenv("ANTHROPIC_BASE_URL")
-        )
+        # 压缩每张图片
+        compressed_images = []
+        for img_data in image_data_list:
+            compressed_images.append(compress_pdf_page(img_data))
 
-        with open(file_path, 'rb') as f:
-            pdf_base64 = base64.standard_b64encode(f.read()).decode("utf-8")
+        total_size_mb = sum(len(d) for d in compressed_images) / (1024 * 1024)
+        print(f"共 {len(compressed_images)} 张图片 ({total_size_mb:.2f}MB)\n")
 
         content = [
             {
@@ -264,22 +362,31 @@ def process_large_pdf(input_file, input_dir=None, output_dir=None, pages_per_chu
 1. 【忽略水印】：忽略页面边缘的OA系统打印痕迹（如日期、系统链接、页码等）。
 2. 【提取结构】：保留完整的文档结构，所有表格转换为Markdown表格。
 3. 【⚠️ 防范错别字】：本文档涉及企业管理制度，请仔细辨认扫描件中的中文，严禁写错形近字！
-   - 注意职务：类似“查事长”大概率是“董事长”。
-   - 注意词汇：“综合”易被看成“统合”，“统一”易被看成“核一”，“管理”易看成“管外”。
-   - 注意常识：类似“眼线”等不符合业务语境的词，须纠正为“单线/主线”等。
+   - 注意职务：类似"查事长"大概率是"董事长"。
+   - 注意词汇："综合"易被看成"统合"，"统一"易被看成"核一"，"管理"易看成"管外"。
+   - 注意常识：类似"眼线"等不符合业务语境的词，须纠正为"单线/主线"等。
 4. 【模糊处理】：遇到无法辨认的模糊手写字迹，请用 `[字迹不清]` 标记，不要生造词。
 
 请直接输出完整的Markdown内容，无需多余解释。"""
-            },
-            {
-                "type": "document",
-                "source": {
-                    "type": "base64",
-                    "media_type": "application/pdf",
-                    "data": pdf_base64
-                }
             }
         ]
+
+        # 添加所有图片
+        for img_data in compressed_images:
+            img_base64 = base64.standard_b64encode(img_data).decode("utf-8")
+            content.append({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/jpeg",
+                    "data": img_base64
+                }
+            })
+
+        client = Anthropic(
+            api_key=os.getenv("ANTHROPIC_AUTH_TOKEN"),
+            base_url=os.getenv("ANTHROPIC_BASE_URL")
+        )
 
         print("使用Vision API处理整个文件...")
         for attempt in range(3):
@@ -291,7 +398,12 @@ def process_large_pdf(input_file, input_dir=None, output_dir=None, pages_per_chu
                         {"role": "user", "content": content}
                     ]
                 )
-                markdown_content = message.content[0].text
+                # 提取文本内容（兼容ThinkingBlock）
+                markdown_content = ""
+                for block in message.content:
+                    if hasattr(block, 'text'):
+                        markdown_content = block.text
+                        break
                 break
             except Exception as e:
                 error_str = str(e)

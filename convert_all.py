@@ -446,26 +446,34 @@ def process_single_file(input_dir, output_dir, file_path, enable_row_description
         # 正常流程：执行步骤 1
         print(f"  [步骤1] 文本提取与转换...")
         update_inventory_excel(output_dir, file_name, 'step1', '进行中')
-        record.methods.append("convert_docs")
-        success, error = run_convert_docs_single_file(input_dir, output_dir, file_path)
-        
-        if not success:
-            record.status = "失败"
-            record.notes = f"步骤1转换失败"
-            update_inventory_excel(output_dir, file_name, 'step1', '失败', error[:100] if error else "未知错误")
-            update_inventory_excel(output_dir, file_name, 'final_status', '失败', '步骤1转换失败')
-            return False, f"步骤1转换失败: {error}", record
 
         if file_path.suffix.lower() == '.pdf':
-            save_raw_pdf_output(output_dir, file_path)
+            # PDF不再由convert_docs处理，直接进Vision
+            print(f"  [智能跳过] PDF文件跳过文本提取，直接进入视觉处理")
+            update_inventory_excel(output_dir, file_name, 'step1', '跳过', 'PDF由Vision处理')
+            update_inventory_excel(output_dir, file_name, 'step2', '跳过', 'PDF由Vision处理')
+            status = 'vision'
+            reason = 'PDF由Vision API处理'
+            record.methods.append("skip_to_vision")
+        else:
+            # DOCX 文件处理
+            record.methods.append("convert_docs")
+            success, error = run_convert_docs_single_file(input_dir, output_dir, file_path)
 
-        update_inventory_excel(output_dir, file_name, 'step1', '完成')
+            if not success:
+                record.status = "失败"
+                record.notes = f"步骤1转换失败"
+                update_inventory_excel(output_dir, file_name, 'step1', '失败', error[:100] if error else "未知错误")
+                update_inventory_excel(output_dir, file_name, 'final_status', '失败', '步骤1转换失败')
+                return False, f"步骤1转换失败: {error}", record
 
-        # 正常流程：执行步骤 2
-        print(f"  [步骤2] 质量检测...")
-        update_inventory_excel(output_dir, file_name, 'step2', '进行中')
-        status, reason = check_needs_vision_single_file(input_dir, output_dir, file_path)
-        update_inventory_excel(output_dir, file_name, 'step2', status, reason or "")
+            update_inventory_excel(output_dir, file_name, 'step1', '完成')
+
+            # 正常流程：执行步骤 2
+            print(f"  [步骤2] 质量检测...")
+            update_inventory_excel(output_dir, file_name, 'step2', '进行中')
+            status, reason = check_needs_vision_single_file(input_dir, output_dir, file_path)
+            update_inventory_excel(output_dir, file_name, 'step2', status, reason or "")
 
     # ----------------------------------------------------
     # 处理分支状态（Vision重处理或跳过）
@@ -532,24 +540,6 @@ def process_single_file(input_dir, output_dir, file_path, enable_row_description
                 update_inventory_excel(output_dir, file_name, 'final_status', '警告', f'DOCX含有{image_count}张图片')
                 return True, None, record 
 
-        # ==================== 核心优化：原生PDF熔断机制 ====================
-        if file_path.suffix.lower() == '.pdf':
-            print(f"  💡 [智能跳过] 原生PDF提取完美，自动跳过大模型润色(步骤4)，防止破坏排版/图片。")
-            update_inventory_excel(output_dir, file_name, 'step4', '跳过', '原生质量完美')
-            
-            file_stem = file_path.stem
-            md_file = Path(output_dir) / (file_stem + '.md')
-            if md_file.exists():
-                record.output_size_mb = md_file.stat().st_size / (1024 * 1024)
-                with open(md_file, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                if '![' in content:
-                    record.has_images = True
-
-            record.status = "完成"
-            update_inventory_excel(output_dir, file_name, 'final_status', '完成', '完美提取(保持原生格式)')
-            return True, None, record
-        # ===================================================================
 
     # ----------------------------------------------------
     # 步骤 4：全文内容校对与润色 (只有质量差、被Vision处理过的才会走到这里)

@@ -8,6 +8,14 @@ import os
 import sys
 
 
+def _extract_text_from_message(message):
+    """从消息内容中提取文本，兼容 ThinkingBlock 返回。"""
+    for block in message.content:
+        if hasattr(block, 'text'):
+            return block.text
+    return ""
+
+
 def generate_row_description(headers: list, row_data: list) -> str:
     """Generate natural language description for a single table row using Claude API.
 
@@ -50,7 +58,7 @@ def generate_row_description(headers: list, row_data: list) -> str:
             ]
         )
 
-        return message.content[0].text.strip()
+        return _extract_text_from_message(message).strip()
     except Exception as e:
         return ""
 
