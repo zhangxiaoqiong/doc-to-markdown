@@ -8,24 +8,8 @@ import os
 import sys
 
 
-def _extract_text_from_message(message):
-    """从消息内容中提取文本，兼容 ThinkingBlock 返回。"""
-    for block in message.content:
-        if hasattr(block, 'text'):
-            return block.text
-    return ""
-
-
 def generate_row_description(headers: list, row_data: list) -> str:
-    """Generate natural language description for a single table row using Claude API.
-
-    Args:
-        headers: List of column header names
-        row_data: List of cell values for this row
-
-    Returns:
-        Generated description or empty string if API fails
-    """
+    """Generate natural language description for a single table row using Claude API."""
     try:
         from anthropic import Anthropic
 
@@ -37,7 +21,6 @@ def generate_row_description(headers: list, row_data: list) -> str:
 
         client = Anthropic(api_key=auth_token, base_url=base_url)
 
-        # Build prompt: pair headers with values
         field_descriptions = []
         for header, value in zip(headers, row_data):
             header_str = str(header).strip() if header else ""
@@ -51,15 +34,14 @@ def generate_row_description(headers: list, row_data: list) -> str:
         prompt = "根据以下信息，用一句话陈述事实，不需要总结：\n" + "，".join(field_descriptions)
 
         message = client.messages.create(
-            model="claude-opus-4-6",
-            max_tokens=200,
-            messages=[
-                {"role": "user", "content": prompt}
-            ]
+            model="claude/claude-haiku-4-5",
+            max_tokens=8000,
+            messages=[{"role": "user", "content": prompt}]
         )
 
-        return _extract_text_from_message(message).strip()
+        return message.content[0].text.strip()
     except Exception as e:
+        print(f"警告: API 生成描述失败 ({headers[0] if headers else 'unknown'}): {e}", file=sys.stderr)
         return ""
 
 
@@ -97,8 +79,8 @@ def _parse_all_xlsx_sheets_from_xml(file_path: str) -> list:
                             if t.text:
                                 text_parts.append(t.text)
                         strings.append(''.join(text_parts))
-            except:
-                pass
+            except Exception as e:
+                print(f"警告: XML fallback 解析 sharedStrings 失败: {e}", file=sys.stderr)
 
             # Get workbook to find sheet list
             try:
@@ -106,7 +88,8 @@ def _parse_all_xlsx_sheets_from_xml(file_path: str) -> list:
                 wb_tree = ET.fromstring(workbook_xml)
                 sheets = wb_tree.findall('.//{http://schemas.openxmlformats.org/spreadsheetml/2006/main}sheet')
                 sheet_count = len(sheets)
-            except:
+            except Exception as e:
+                print(f"警告: XML fallback 无法读取 workbook.xml: {e}", file=sys.stderr)
                 sheet_count = 10  # Try up to 10 sheets
 
             # Parse each sheet
@@ -140,10 +123,11 @@ def _parse_all_xlsx_sheets_from_xml(file_path: str) -> list:
 
                         if sheet_data:
                             all_sheets.append(sheet_data)
-                except:
-                    pass
+                except Exception as e:
+                    print(f"警告: XML fallback 解析 sheet{sheet_idx} 失败: {e}", file=sys.stderr)
 
     except Exception as e:
+        print(f"警告: XML fallback 解析 ZIP 文件失败: {e}", file=sys.stderr)
         return []
 
     return all_sheets
@@ -169,7 +153,8 @@ def excel_to_markdown_by_sheets(file_path: str, enable_row_descriptions: bool = 
                         sheet_markdowns[sheet_name] = '\n'.join(markdown_lines)
         finally:
             workbook.close()
-    except:
+    except Exception as e:
+        print(f"警告: openpyxl 加载失败，将使用 XML fallback（可能丢失合并单元格数据）: {e}", file=sys.stderr)
         # Fallback to XML parsing - process all sheets
         all_rows_list = _parse_all_xlsx_sheets_from_xml(file_path)
 
@@ -180,7 +165,8 @@ def excel_to_markdown_by_sheets(file_path: str, enable_row_descriptions: bool = 
                 wb_tree = ET.fromstring(workbook_xml)
                 sheets = wb_tree.findall('.//{http://schemas.openxmlformats.org/spreadsheetml/2006/main}sheet')
                 sheet_names = [sheet.get('name', f'Sheet{i+1}') for i, sheet in enumerate(sheets)]
-        except:
+        except Exception as e2:
+            print(f"警告: XML fallback 无法获取 sheet 名称，使用默认命名: {e2}", file=sys.stderr)
             sheet_names = [f'Sheet{i+1}' for i in range(len(all_rows_list))]
 
         for sheet_idx, rows in enumerate(all_rows_list):
@@ -214,7 +200,8 @@ def excel_to_markdown(file_path: str) -> str:
                         all_markdown_lines.extend(markdown_lines)
         finally:
             workbook.close()
-    except:
+    except Exception as e:
+        print(f"警告: openpyxl 加载失败，将使用 XML fallback（可能丢失合并单元格数据）: {e}", file=sys.stderr)
         # Fallback to XML parsing - process all sheets
         all_rows_list = _parse_all_xlsx_sheets_from_xml(file_path)
         for sheet_idx, rows in enumerate(all_rows_list):
@@ -250,18 +237,13 @@ def _process_rows(rows, sheet_name, enable_row_descriptions=False, max_rows_with
     if enable_row_descriptions:
         clean_headers = [str(h).strip().replace('\n', '<br>').replace('\r', '') if h else "" for h in header_row]
 
-        # Count total non-empty rows
-        total_rows = sum(1 for r in data_rows if r and not all(cell is None for cell in r))
-        rows_with_desc = min(total_rows, max_rows_with_descriptions)
-        current_row_count = 0
-
         for row in data_rows:
             if not row or all(cell is None for cell in row):
                 continue
 
             clean_row_data = [str(cell).strip().replace('\n', '<br>').replace('\r', '') if cell else "" for cell in row]
 
-            if not any(clean_row_data):  # Skip empty rows
+            if not any(clean_row_data):
                 continue
 
             # Output: field-value pairs (definition list format)
@@ -270,12 +252,11 @@ def _process_rows(rows, sheet_name, enable_row_descriptions=False, max_rows_with
                 if header and value:
                     markdown_lines.append(f"**{header}:** {value}")
 
-            # Generate and append description only for first N rows
-            if current_row_count < rows_with_desc:
-                description = generate_row_description(clean_headers, clean_row_data)
-                if description:
-                    markdown_lines.append("")
-                    markdown_lines.append(description)
+            # Generate description via API (逐行调用)
+            description = generate_row_description(clean_headers, clean_row_data)
+            if description:
+                markdown_lines.append("")
+                markdown_lines.append(description)
 
             markdown_lines.append("")
             markdown_lines.append("---")
@@ -290,8 +271,14 @@ def _process_rows(rows, sheet_name, enable_row_descriptions=False, max_rows_with
     # Original logic: Q&A format or descriptions disabled
     current_category = None
 
+    # Statistics for skipped rows
+    empty_rows = 0
+    missing_col1 = 0
+    missing_answer = []
+
     for row in data_rows:
         if not row or all(cell is None for cell in row):
+            empty_rows += 1
             continue
 
         # Extract first 3 columns for common processing
@@ -300,10 +287,12 @@ def _process_rows(rows, sheet_name, enable_row_descriptions=False, max_rows_with
         col2 = str(row[2]).strip().replace('\n', '<br>').replace('\r', '') if len(row) > 2 and row[2] else ""
 
         if not col1:  # Need at least column 1 (title/question)
+            missing_col1 += 1
             continue
 
         # Q&A format: requires col2 (answer)
         if is_qa_format and not col2:
+            missing_answer.append(col1)
             continue
 
         # Add category heading if changed
@@ -327,6 +316,16 @@ def _process_rows(rows, sheet_name, enable_row_descriptions=False, max_rows_with
         markdown_lines.append("---")
         markdown_lines.append("")
 
+    # Print filtering statistics
+    if empty_rows:
+        print(f"  [{sheet_name}] 跳过空行: {empty_rows}", file=sys.stderr)
+    if missing_col1:
+        print(f"  [{sheet_name}] 跳过缺少标题的行(可能为合并单元格跨行): {missing_col1}", file=sys.stderr)
+    if missing_answer:
+        print(f"  [{sheet_name}] 跳过缺少答案的 {len(missing_answer)} 行:", file=sys.stderr)
+        for q in missing_answer:
+            print(f"    - {q}", file=sys.stderr)
+
     return markdown_lines
 
 
@@ -334,12 +333,45 @@ if __name__ == "__main__":
     import sys
 
     if len(sys.argv) < 3:
-        print("Usage: python simple_converter.py <input.xlsx> <output.md>")
+        print("Usage: python convert_xlsx.py <input.xlsx> <output_dir|output.md> [--descriptions]")
+        print("  --descriptions: 生成带一句话描述的行，输出为目录（多 sheet 时分文件）")
         sys.exit(1)
 
     input_file = sys.argv[1]
-    output_file = sys.argv[2]
+    output_target = sys.argv[2]
+    enable_descriptions = "--descriptions" in sys.argv
 
-    md = excel_to_markdown(input_file)
-    Path(output_file).write_text(md, encoding='utf-8')
-    print(f"✓ Generated: {output_file}")
+    # Step 1: 数据完整性验证（有问题直接终止）
+    print(f"\n=== 步骤1: 数据完整性验证 ===\n")
+    from detect_issues import detect_issues
+
+    issues_found = detect_issues(input_file)
+    if issues_found:
+        print(f"\n[终止] 数据验证失败，共发现 {issues_found} 个问题，请修正后重试。", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"\n=== 步骤2: 开始转换 ===\n")
+
+    # Step 2: 转换
+    if enable_descriptions:
+        result = excel_to_markdown_by_sheets(input_file, enable_row_descriptions=True)
+        output_dir = Path(output_target)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        base_name = Path(input_file).stem
+        for sheet_name, md_content in result.items():
+            output_filename = f"{base_name}_{sheet_name}_带描述.md"
+            output_file = output_dir / output_filename
+            output_file.write_text(md_content, encoding='utf-8')
+            print(f"[OK] Generated: {output_file}")
+        if not result:
+            print("错误: 转换结果为空，请检查上方的警告信息", file=sys.stderr)
+            sys.exit(1)
+    else:
+        output_file = Path(output_target)
+        md = excel_to_markdown(input_file)
+        if not md:
+            print("错误: 转换结果为空，请检查上方的警告信息", file=sys.stderr)
+            sys.exit(1)
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        output_file.write_text(md, encoding='utf-8')
+        print(f"[OK] Generated: {output_file}")
